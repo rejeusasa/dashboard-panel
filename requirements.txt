@@ -1,0 +1,37 @@
+# Bot Panel Dashboard - Complete Requirements
+# Python 3.8+
+
+# Web Framework & Server
+Flask==2.3.3
+Flask-CORS==4.0.0
+Werkzeug==2.3.7
+
+# Browser Automation & Control
+Selenium==4.15.2
+pyautogui==0.9.53
+mss==6.1.0
+
+# HTTP & Network Utilities
+requests==2.31.0
+urllib3==2.1.0
+
+# System & Process Management
+psutil==5.9.5
+
+# Database (SQLite3 built-in with Python)
+# No additional package needed
+
+# Utilities
+python-dotenv==1.0.0
+
+# Optional: Real-time Communication
+# Uncomment if using WebSocket features
+# python-socketio==5.9.0
+# python-engineio==4.7.1
+
+# Optional: Security
+# Cryptography==41.0.7
+
+# Development & Testing (Optional)
+# pytest==7.4.3
+# pytest-cov==4.1.0
