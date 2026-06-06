@@ -1,0 +1,248 @@
+"""
+MODUL_BOT.PY DENGAN DASHBOARD INTEGRATION
+Selenium automation dengan link processing tracking
+"""
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, WebDriverException
+import os
+import time
+import gc
+
+# 🆕 IMPORT DASHBOARD
+from dashboard_integration import dashboard_logger, log_link_processing, update_worker_performance
+
+# --- KONFIGURASI WAKTU ---
+SLEEP_SEBELUM_AKSI = 50
+SLEEP_SESUDAH_AKSI = 20
+SLEEP_JIKA_ERROR = 2 
+
+def get_options(user_data_dir, profile_dir):
+    options = webdriver.ChromeOptions()
+    options.add_argument(f"user-data-dir={user_data_dir}")
+    options.add_argument(f"--profile-directory={profile_dir}")
+    
+    # --- CONFIG STANDARD DOCKER & CHROME 109 ---
+    options.add_argument("--test-type")
+    options.add_argument("--simulate-outdated-no-au='Tue, 31 Dec 2099 23:59:59 GMT'")
+    options.add_argument("--disable-component-update")
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
+    
+    # [PENTING] Mencegah error connection refused di Docker
+    options.add_argument("--remote-allow-origins=*") 
+    
+    options.add_argument("--disable-gpu") 
+    options.add_argument("--no-sandbox") 
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--window-size=500,500")
+    options.add_argument("--disable-extensions")
+    
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+    options.add_experimental_option("prefs", {
+        "profile.default_content_setting_values.notifications": 2,
+        "credentials_enable_service": False,
+        "profile.password_manager_enabled": False,
+        "profile.exit_type": "Normal", 
+        "profile.exited_cleanly": True
+    })
+    return options
+
+def read_file_lines(path):
+    if not os.path.exists(path): return []
+    with open(path, 'r') as f: return [line.strip() for line in f if line.strip()]
+
+def get_profiles_from_mapping(path):
+    """
+    MEMASTIKAN PATH SESUAI DOCKER (/app/chrome_profiles)
+    Meskipun di file txt isinya path windows, ini akan otomatis memperbaikinya.
+    """
+    profiles = []
+    # Mengambil path folder kerja saat ini (di Docker biasanya /app)
+    base_docker_path = os.path.join(os.getcwd(), "chrome_profiles")
+    
+    lines = read_file_lines(path)
+    for line in lines:
+        if "|" in line:
+            parts = line.split("|")
+            original_path = parts[0].strip()
+            name = parts[1].strip()
+            
+            # Ambil nama foldernya saja (misal: dotaja01)
+            folder_name = os.path.basename(original_path)
+            if not folder_name: folder_name = name 
+            
+            # Gabungkan dengan path docker yang benar
+            final_path = os.path.join(base_docker_path, folder_name)
+            
+            profiles.append({
+                "name": name,
+                "user_data_dir": final_path,
+                "profile_dir": "Default",
+                "window_position": (0, 0)
+            })
+    return profiles
+
+def process_single_link(driver, link, profile_name, status_dict):
+    """
+    Process single link dengan tracking ke dashboard
+    """
+    try:
+        status_dict[profile_name] = f"Membuka: {link}..."
+        dashboard_logger.log_event('LINK_PROCESS', profile_name, 'ATTEMPT', f'Opening: {link}')
+        
+        # Timeout loading page maks 20 detik
+        driver.set_page_load_timeout(20)
+        try:
+            driver.get(link)
+        except TimeoutException:
+            status_dict[profile_name] = "Page load timeout (Lanjut cek elemen)..."
+            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'WARNING', 'Page load timeout')
+        except Exception as e:
+            status_dict[profile_name] = "Gagal memuat URL -> SKIP"
+            log_link_processing(profile_name, link, False, f"Failed to load: {str(e)[:50]}")
+            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'ERROR', f'URL load failed: {str(e)[:50]}')
+            return False
+
+        # Waktu tunggu elemen muncul
+        wait = WebDriverWait(driver, 10)
+
+        # 1. Cek Tombol Trust (Opsional - Coba Klik)
+        try:
+            trust = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'I trust the owner')]")))
+            trust.click()
+            status_dict[profile_name] = "Klik Trust"
+            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'INFO', 'Clicked Trust button')
+            time.sleep(2)
+        except:
+            pass 
+
+        # 2. Cek Tombol Open Workspace (Opsional - Coba Klik)
+        try:
+            open_ws = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Open Workspace')]")))
+            open_ws.click()
+            status_dict[profile_name] = "Klik Open"
+            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'INFO', 'Clicked Open button')
+            time.sleep(2)
+        except:
+            pass 
+
+        # 3. PENENTUAN: Cek Iframe IDE (WAJIB ADA)
+        try:
+            status_dict[profile_name] = "Menunggu Iframe IDE..."
+            wait.until(EC.visibility_of_element_located((
+                By.CSS_SELECTOR, "iframe.the-iframe.is-loaded[src*='ide-start']"
+            )))
+            status_dict[profile_name] = "✅ Iframe Muncul! Lanjut..."
+            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'SUCCESS', 'Iframe detected')
+        except:
+            # --- LOGIKA SKIP: Kalo Iframe gak ada, SKIP LINK INI ---
+            status_dict[profile_name] = "❌ Iframe Gak Muncul -> SKIP LINK"
+            log_link_processing(profile_name, link, False, "Iframe not detected")
+            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'SKIPPED', 'Iframe not detected')
+            return False 
+
+        # --- JIKA IFRAME ADA, BARU JALANKAN SHORTCUT ---
+        status_dict[profile_name] = f"Idle {SLEEP_SEBELUM_AKSI}s..."
+        time.sleep(SLEEP_SEBELUM_AKSI)
+        
+        try:
+            driver.find_element(By.TAG_NAME, "body").click()
+            actions = ActionChains(driver)
+            actions.key_down(Keys.CONTROL).key_down(Keys.SHIFT).send_keys("c").key_up(Keys.SHIFT).key_up(Keys.CONTROL).perform()
+            status_dict[profile_name] = "Shortcut Terkirim!"
+            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'SUCCESS', 'Shortcut sent')
+            
+            # 🆕 LOG LINK SUCCESS
+            log_link_processing(profile_name, link, True, "Shortcut executed successfully")
+        except Exception as e:
+            status_dict[profile_name] = "Gagal kirim shortcut"
+            log_link_processing(profile_name, link, False, f"Shortcut failed: {str(e)[:50]}")
+            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'ERROR', f'Shortcut error: {str(e)[:50]}')
+            
+        time.sleep(SLEEP_SESUDAH_AKSI)
+        status_dict[profile_name] = "✅ Selesai link ini."
+        return True
+
+    except Exception as e:
+        status_dict[profile_name] = f"❌ Error System: {str(e)[:20]}..."
+        log_link_processing(profile_name, link, False, str(e)[:50])
+        dashboard_logger.log_event('LINK_PROCESS', profile_name, 'CRITICAL', f'System error: {str(e)[:50]}')
+        time.sleep(SLEEP_JIKA_ERROR)
+        return False
+
+def worker(profile_name, user_data_dir, profile_dir, window_position, links, status_dict):
+    """
+    Worker process dengan dashboard tracking
+    """
+    
+    dashboard_logger.log_event('WORKER', profile_name, 'START', f'Worker initialized with {len(links)} links')
+    
+    if not links:
+        status_dict[profile_name] = "Tidak ada link."
+        dashboard_logger.log_event('WORKER', profile_name, 'WARNING', 'No links assigned')
+        return
+
+    options = get_options(user_data_dir, profile_dir)
+    driver = None
+    
+    total_links = 0
+    successful_links = 0
+    failed_links = 0
+    start_time = time.time()
+    
+    try:
+        status_dict[profile_name] = "Start Browser..."
+        driver = webdriver.Chrome(options=options)
+        dashboard_logger.log_event('WORKER', profile_name, 'INFO', 'Browser started')
+        
+        if window_position: 
+            driver.set_window_position(*window_position)
+
+        putaran = 1
+        while True: 
+            status_dict[profile_name] = f"🔄 Masuk Putaran ke-{putaran}"
+            for i, link in enumerate(links):
+                status_dict[profile_name] = f"[P{putaran}] Link {i+1}/{len(links)}..."
+                
+                # [OPTIMASI MEMORY] Bersihkan sampah memori Python sebelum proses berat
+                gc.collect() 
+                
+                total_links += 1
+                
+                # JALANKAN PROSES
+                if process_single_link(driver, link, profile_name, status_dict):
+                    successful_links += 1
+                else:
+                    failed_links += 1
+                
+            status_dict[profile_name] = f"✅ Putaran {putaran} Done. Replay..."
+            putaran += 1
+            time.sleep(3) 
+            
+    except Exception as e:
+        status_dict[profile_name] = f"CRITICAL: {e}"
+        dashboard_logger.log_event('WORKER', profile_name, 'CRITICAL', f'Worker crash: {str(e)[:50]}')
+    finally:
+        if driver:
+            try: 
+                driver.quit()
+            except: 
+                pass
+        
+        # 🆕 UPDATE WORKER PERFORMANCE STATS
+        runtime = int(time.time() - start_time)
+        update_worker_performance(profile_name, total_links, successful_links, failed_links, runtime)
+        
+        dashboard_logger.log_event('WORKER', profile_name, 'END', 
+                                  f'Worker finished: {successful_links}/{total_links} successful, runtime: {runtime}s')
+        
+        print(f"✅ [{profile_name}] Complete: {successful_links}/{total_links} successful in {runtime}s", flush=True)
