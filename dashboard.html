@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 BOT PANEL DASHBOARD</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            color: #667eea;
+        }
+
+        .status-indicator {
+            font-size: 14px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-idle {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .status-running {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .status-busy {
+            background: #fff3e0;
+            color: #e65100;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 12px rgba(0,0,0,0.15);
+        }
+
+        .card h3 {
+            color: #667eea;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            letter-spacing: 0.5px;
+        }
+
+        .card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .card .subtext {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s ease;
+        }
+
+        .system-health {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .health-item {
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .health-item .label {
+            font-size: 11px;
+            color: #999;
+            font-weight: 600;
+        }
+
+        .health-item .value {
+            font-size: 18px;
+            color: #333;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+
+        .worker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .worker-card {
+            background: white;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .worker-card .name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .worker-card .stat {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #666;
+        }
+
+        .worker-card .success-rate {
+            margin-top: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            color: #4caf50;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .chart-container h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .tab {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background: #f0f0f0;
+            color: #333;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .tab:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .event-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .event-item {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            font-size: 13px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .event-item:last-child {
+            border-bottom: none;
+        }
+
+        .event-timestamp {
+            color: #999;
+            min-width: 150px;
+            font-family: monospace;
+        }
+
+        .event-message {
+            flex: 1;
+        }
+
+        .event-type {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .event-type.login {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .event-type.link {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .event-type.batch {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+            font-size: 12px;
+        }
+
+        table tr:hover {
+            background: #f9f9f9;
+        }
+
+        .refresh-btn, .export-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin-right: 10px;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+        }
+
+        .refresh-btn:hover {
+            background: #5568d3;
+        }
+
+        .export-btn {
+            background: #4caf50;
+            color: white;
+        }
+
+        .export-btn:hover {
+            background: #45a049;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .system-health {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>🤖 BOT PANEL DASHBOARD</h1>
+                <p style="color: #999; margin-top: 5px;">Real-time Monitoring & Analytics</p>
+            </div>
+            <div>
+                <div id="statusIndicator" class="status-indicator status-idle">
+                    <span class="dot"></span>
+                    <span id="statusText">IDLE</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Metrics -->
+        <div class="grid">
+            <div class="card">
+                <h3>Current Batch Links</h3>
+                <div class="value" id="batchLinks">0</div>
+                <div class="subtext">Total links in current batch</div>
+                <div class="progress-bar">
+                    <div class="progress" id="progressBar" style="width: 0%"></div>
+                </div>
+                <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                    <span id="processedCount">0</span> / <span id="totalCount">0</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Success Rate</h3>
+                <div class="value" id="successRate">0%</div>
+                <div class="subtext">Current batch success</div>
+                <div style="margin-top: 15px; font-size: 12px; color: #666;">
+                    ✅ <span id="successCount">0</span> successful<br>
+                    ❌ <span id="failCount">0</span> failed
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Active Workers</h3>
+                <div class="value" id="activeWorkers">0</div>
+                <div class="subtext">Workers processing links</div>
+                <div class="system-health" style="margin-top: 15px;">
+                    <div class="health-item">
+                        <div class="label">CPU</div>
+                        <div class="value" id="cpuUsage">0%</div>
+                    </div>
+                    <div class="health-item">
+                        <div class="label">Memory</div>
+                        <div class="value" id="memUsage">0%</div>
+                    </div>
+                    <div class="health-item">
+                        <div class="label">Chrome</div>
+                        <div class="value" id="chromeCount">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Elapsed Time</h3>
+                <div class="value" id="elapsedTime">00:00:00</div>
+                <div class="subtext">Batch processing duration</div>
+                <div style="margin-top: 15px; font-size: 12px; color: #666;">
+                    ⏱️ ETA: <span id="etaTime">--:--:--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('overview')">📊 Overview</button>
+            <button class="tab" onclick="switchTab('workers')">👷 Workers</button>
+            <button class="tab" onclick="switchTab('history')">📜 History</button>
+            <button class="tab" onclick="switchTab('analytics')">📈 Analytics</button>
+        </div>
+
+        <!-- Tab: Overview -->
+        <div id="overview" class="tab-content active">
+            <div class="chart-container">
+                <h3>Batch Progress</h3>
+                <canvas id="batchProgressChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <h3>System Performance</h3>
+                <canvas id="systemChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Tab: Workers -->
+        <div id="workers" class="tab-content">
+            <div style="margin-bottom: 15px;">
+                <button class="refresh-btn" onclick="refreshWorkers()">🔄 Refresh Workers</button>
+            </div>
+            <div class="worker-grid" id="workerList">
+                <div class="no-data">Loading worker data...</div>
+            </div>
+        </div>
+
+        <!-- Tab: History -->
+        <div id="history" class="tab-content">
+            <div style="margin-bottom: 15px;">
+                <button class="refresh-btn" onclick="refreshHistory()">🔄 Refresh Events</button>
+                <button class="export-btn" onclick="exportLogs('json')">⬇️ Export JSON</button>
+                <button class="export-btn" onclick="exportLogs('csv')">⬇️ Export CSV</button>
+            </div>
+            <div class="event-list" id="eventList">
+                <div class="no-data">No events recorded</div>
+            </div>
+        </div>
+
+        <!-- Tab: Analytics -->
+        <div id="analytics" class="tab-content">
+            <div class="chart-container">
+                <h3>Email Login Success Rate (Last 7 Days)</h3>
+                <table id="analyticsTable">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Total Emails</td>
+                            <td id="totalEmails">0</td>
+                        </tr>
+                        <tr>
+                            <td>Successful Logins</td>
+                            <td id="successfulLogins">0</td>
+                        </tr>
+                        <tr>
+                            <td>Success Rate</td>
+                            <td id="emailSuccessRate">0%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="chart-container">
+                <h3>Top Performing Workers</h3>
+                <table id="workerAnalyticsTable">
+                    <thead>
+                        <tr>
+                            <th>Worker Name</th>
+                            <th>Total Links</th>
+                            <th>Success Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody id="workerAnalyticsList">
+                        <tr>
+                            <td colspan="3" class="no-data">No worker data</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:7861/api/dashboard';
+        let batchProgressChart, systemChart;
+
+        // Initialize charts
+        function initCharts() {
+            // Batch Progress Chart
+            const batchCtx = document.getElementById('batchProgressChart').getContext('2d');
+            batchProgressChart = new Chart(batchCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Successful', 'Failed', 'Pending'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#4caf50', '#f44336', '#2196f3']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+
+            // System Chart
+            const systemCtx = document.getElementById('systemChart').getContext('2d');
+            systemChart = new Chart(systemCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'CPU %',
+                            data: [],
+                            borderColor: '#ff9800',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Memory %',
+                            data: [],
+                            borderColor: '#2196f3',
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { max: 100 }
+                    }
+                }
+            });
+        }
+
+        // Format time
+        function formatTime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        // Update metrics
+        async function updateMetrics() {
+            try {
+                const res = await axios.get(`${API_BASE}/realtime`);
+                const { metrics, system } = res.data;
+
+                // Update main cards
+                document.getElementById('batchLinks').textContent = metrics.total_links || 0;
+                document.getElementById('processedCount').textContent = metrics.processed_links || 0;
+                document.getElementById('totalCount').textContent = metrics.total_links || 0;
+                document.getElementById('successCount').textContent = metrics.successful_links || 0;
+                document.getElementById('failCount').textContent = metrics.failed_links || 0;
+                document.getElementById('activeWorkers').textContent = Object.keys(metrics.workers || {}).length;
+                document.getElementById('elapsedTime').textContent = formatTime(metrics.elapsed_time || 0);
+                document.getElementById('etaTime').textContent = formatTime(metrics.estimated_remaining || 0);
+
+                // Success rate
+                let successRate = 0;
+                if (metrics.processed_links > 0) {
+                    successRate = Math.round((metrics.successful_links / metrics.processed_links) * 100);
+                }
+                document.getElementById('successRate').textContent = successRate + '%';
+
+                // Progress bar
+                let progress = 0;
+                if (metrics.total_links > 0) {
+                    progress = (metrics.processed_links / metrics.total_links) * 100;
+                }
+                document.getElementById('progressBar').style.width = progress + '%';
+
+                // System health
+                if (system && !system.error) {
+                    document.getElementById('cpuUsage').textContent = system.cpu_percent + '%';
+                    document.getElementById('memUsage').textContent = system.memory.percent + '%';
+                    document.getElementById('chromeCount').textContent = system.chrome_processes;
+
+                    // Update system chart
+                    if (systemChart.data.labels.length > 20) {
+                        systemChart.data.labels.shift();
+                        systemChart.data.datasets[0].data.shift();
+                        systemChart.data.datasets[1].data.shift();
+                    }
+                    systemChart.data.labels.push(new Date().toLocaleTimeString());
+                    systemChart.data.datasets[0].data.push(system.cpu_percent);
+                    systemChart.data.datasets[1].data.push(system.memory.percent);
+                    systemChart.update();
+                }
+
+                // Update batch chart
+                const pending = (metrics.total_links || 0) - (metrics.processed_links || 0);
+                batchProgressChart.data.datasets[0].data = [
+                    metrics.successful_links || 0,
+                    metrics.failed_links || 0,
+                    pending
+                ];
+                batchProgressChart.update();
+
+                // Update status indicator
+                const status = metrics.system_status || 'IDLE';
+                const indicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                indicator.className = `status-indicator status-${status.toLowerCase()}`;
+                statusText.textContent = status;
+
+            } catch (error) {
+                console.error('Error updating metrics:', error);
+            }
+        }
+
+        // Refresh workers
+        async function refreshWorkers() {
+            try {
+                const res = await axios.get(`${API_BASE}/worker-stats`);
+                const { workers } = res.data;
+
+                const workerList = document.getElementById('workerList');
+                if (workers.length === 0) {
+                    workerList.innerHTML = '<div class="no-data">No worker data available</div>';
+                    return;
+                }
+
+                workerList.innerHTML = workers.map(w => `
+                    <div class="worker-card">
+                        <div class="name">${w.profile_name}</div>
+                        <div class="stat">
+                            <span>Total Links:</span>
+                            <strong>${w.total_links_processed || 0}</strong>
+                        </div>
+                        <div class="stat">
+                            <span>Successful:</span>
+                            <strong style="color: #4caf50;">${w.successful_links || 0}</strong>
+                        </div>
+                        <div class="stat">
+                            <span>Failed:</span>
+                            <strong style="color: #f44336;">${w.failed_links || 0}</strong>
+                        </div>
+                        <div class="success-rate">
+                            Success Rate: ${w.total_links_processed > 0 ? Math.round((w.successful_links / w.total_links_processed) * 100) : 0}%
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading workers:', error);
+            }
+        }
+
+        // Refresh history
+        async function refreshHistory() {
+            try {
+                const res = await axios.get(`${API_BASE}/history?limit=50`);
+                const { events } = res.data;
+
+                const eventList = document.getElementById('eventList');
+                if (events.length === 0) {
+                    eventList.innerHTML = '<div class="no-data">No events recorded</div>';
+                    return;
+                }
+
+                eventList.innerHTML = events.map(e => `
+                    <div class="event-item">
+                        <div class="event-timestamp">${new Date(e.timestamp).toLocaleString()}</div>
+                        <div class="event-message">
+                            <div class="event-type ${e.event_type.toLowerCase()}">${e.event_type}</div>
+                            <strong>${e.profile_name}</strong>: ${e.message}
+                            ${e.status ? `<span style="color: #999; margin-left: 5px;">[${e.status}]</span>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading history:', error);
+            }
+        }
+
+        // Refresh analytics
+        async function refreshAnalytics() {
+            try {
+                const res = await axios.get(`${API_BASE}/analytics?days=7`);
+                const { email_stats, worker_efficiency } = res.data;
+
+                document.getElementById('totalEmails').textContent = email_stats.total || 0;
+                document.getElementById('successfulLogins').textContent = email_stats.successful || 0;
+                const emailRate = email_stats.total > 0 ? Math.round((email_stats.successful / email_stats.total) * 100) : 0;
+                document.getElementById('emailSuccessRate').textContent = emailRate + '%';
+
+                const tbody = document.getElementById('workerAnalyticsList');
+                if (worker_efficiency.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" class="no-data">No worker data</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = worker_efficiency.map(w => `
+                    <tr>
+                        <td>${w.profile_name}</td>
+                        <td>${w.total_links_processed}</td>
+                        <td>${w.success_rate || 0}%</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+            }
+        }
+
+        // Export logs
+        function exportLogs(format) {
+            const link = document.createElement('a');
+            link.href = `${API_BASE}/logs-export?format=${format}`;
+            link.download = `logs.${format}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Switch tabs
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+
+            if (tabName === 'workers') refreshWorkers();
+            if (tabName === 'history') refreshHistory();
+            if (tabName === 'analytics') refreshAnalytics();
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            initCharts();
+            updateMetrics();
+            setInterval(updateMetrics, 2000); // Update every 2 seconds
+        });
+    </script>
+</body>
+</html>
