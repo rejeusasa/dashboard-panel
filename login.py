@@ -1,8 +1,3 @@
-"""
-LOGIN.PY DENGAN DASHBOARD INTEGRATION
-Automasi login dengan tracking ke dashboard
-"""
-
 import os
 import time
 import subprocess
@@ -15,9 +10,7 @@ import socket
 import urllib3
 import psutil 
 from urllib.parse import urlparse
-
-# 🆕 IMPORT DASHBOARD
-from dashboard_integration import dashboard_logger, log_login_attempt
+from dashboard_integration import DashboardLogger
 
 # ==========================================
 # ⚙️ KONFIGURASI & BRIDGE SPESIFIK
@@ -30,7 +23,7 @@ TARGET_DOMAINS = ["api.ipify.org"]
 
 def resolve_specific_domains():
     print("Bridge active for IP Check...", flush=True)
-    dashboard_logger.log_event('INIT', 'LOGIN', 'INFO', 'DNS Bridge initialization')
+    DashboardLogger.log_simple_event("[LOGIN] Bridge DNS resolution")
     
     for domain in TARGET_DOMAINS:
         try:
@@ -40,9 +33,8 @@ def resolve_specific_domains():
             if 'Answer' in data:
                 ip_address = data['Answer'][0]['data']
                 DNS_MAP[domain] = ip_address
-                dashboard_logger.log_event('BRIDGE', 'LOGIN', 'SUCCESS', f'DNS resolved: {domain} -> {ip_address}')
         except Exception as e:
-            dashboard_logger.log_event('BRIDGE', 'LOGIN', 'ERROR', f'DNS resolution failed: {str(e)}')
+            pass
 
 def new_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     if host in DNS_MAP:
@@ -74,10 +66,8 @@ HISTORY_FILE = os.path.join(BASE_PATH, "history_sukses.txt")
 # ==========================================
 try:
     MY_IP = requests.get('https://api.ipify.org', timeout=15, verify=False).text.strip()
-    dashboard_logger.log_event('INIT', 'LOGIN', 'SUCCESS', f'Bot IP detected: {MY_IP}')
 except:
     MY_IP = "Unknown IP"
-    dashboard_logger.log_event('INIT', 'LOGIN', 'WARNING', 'Failed to detect IP')
 
 # ==========================================
 # FUNGSI PENDUKUNG
@@ -136,19 +126,15 @@ def kill_chrome(proc_instance=None):
 # MAIN EXECUTION
 # ==========================================
 if not os.path.exists(EMAIL_FILE): 
-    dashboard_logger.log_event('ERROR', 'LOGIN', 'ERROR', 'email.txt file not found')
     sys.exit(1)
 
 with open(EMAIL_FILE, "r") as f:
     EMAILS = [line.strip() for line in f if line.strip()]
 
-dashboard_logger.log_event('START', 'LOGIN', 'INFO', f'Starting login process with {len(EMAILS)} emails')
-
 COMPLETED_EMAILS = load_history()
 kill_chrome()
 
-successful_logins = 0
-failed_logins = 0
+DashboardLogger.log_simple_event(f"[LOGIN] Started with {len(EMAILS)} emails, IP: {MY_IP}")
 
 for i, EMAIL in enumerate(EMAILS, start=START_INDEX):
     folder_name = f"{PROFILE_PREFIX}{i:02d}"
@@ -160,11 +146,10 @@ for i, EMAIL in enumerate(EMAILS, start=START_INDEX):
 
     if EMAIL in COMPLETED_EMAILS:
         MODE = "CHECK"
-        TARGET_URL = "https://idx.google.com/joko"
-        dashboard_logger.log_event('LOGIN', folder_name, 'INFO', f'Email already logged in: {EMAIL}')
+        TARGET_URL = "https://idx.google.com/joko" 
     else:
         MODE = "LOGIN"
-        TARGET_URL = "https://idx.google.com/joko"
+        TARGET_URL = "https://idx.google.com/joko" 
 
     cmd = [
         CHROME_PATH, 
@@ -185,44 +170,35 @@ for i, EMAIL in enumerate(EMAILS, start=START_INDEX):
 
     try:
         if MODE == "LOGIN":
-            dashboard_logger.log_event('LOGIN', folder_name, 'ATTEMPT', f'Starting login for: {EMAIL}')
-            
             pyautogui.write(EMAIL, interval=0.1)
             pyautogui.press("enter")
-            time.sleep(8) 
-            pyautogui.write(PASSWORD, interval=0.1)
-            pyautogui.press("enter")
-            time.sleep(15)
+            time.sleep(8)
             
-            save_history(EMAIL)
-            successful_logins += 1
-            
-            # 🆕 LOG LOGIN SUCCESS
-            log_login_attempt(EMAIL, folder_name, True)
-            dashboard_logger.log_event('LOGIN', folder_name, 'SUCCESS', f'Login successful: {EMAIL}')
+            try:
+                pyautogui.write(PASSWORD, interval=0.1)
+                pyautogui.press("enter")
+                time.sleep(15)
+                save_history(EMAIL)
+                DashboardLogger.log_email_attempt(EMAIL, folder_name, True)
+                print(f"✅ LOGIN SUCCESS: {EMAIL}")
+            except Exception as e:
+                DashboardLogger.log_email_attempt(EMAIL, folder_name, False, str(e)[:50])
+                print(f"❌ LOGIN FAILED: {EMAIL} - {e}")
         
         # PROSES SIMPAN GAMBAR LOKAL
         ss_path = os.path.join(BASE_PATH, f"bukti_{folder_name}.png")
         try:
             with mss.mss() as sct: sct.shot(mon=-1, output=ss_path)
-            dashboard_logger.log_event('SCREENSHOT', folder_name, 'SUCCESS', f'Screenshot saved: {ss_path}')
             print(f"Screenshot saved: {ss_path}", flush=True)
-        except Exception as e:
-            dashboard_logger.log_event('SCREENSHOT', folder_name, 'ERROR', f'Screenshot failed: {str(e)}')
-            pass
+            DashboardLogger.log_simple_event(f"[LOGIN] Screenshot: {folder_name}")
+        except: pass
             
     except Exception as e:
-        failed_logins += 1
-        error_msg = str(e)[:100]
         print(f"Error: {e}")
-        dashboard_logger.log_event('LOGIN', folder_name, 'ERROR', f'Login error: {error_msg}')
-        log_login_attempt(EMAIL, folder_name, False, error_msg)
+        DashboardLogger.log_event('LOGIN_ERROR', folder_name, 'ERROR', str(e)[:50])
 
     kill_chrome(proc)
     time.sleep(2)
 
-# Final summary
-dashboard_logger.log_event('END', 'LOGIN', 'SUCCESS', 
-                          f'Login process completed: {successful_logins} successful, {failed_logins} failed')
 print(f"Process Complete. IP: {MY_IP}")
-print(f"✅ Successful: {successful_logins}, ❌ Failed: {failed_logins}")
+DashboardLogger.log_simple_event(f"[LOGIN] Process completed. IP: {MY_IP}")

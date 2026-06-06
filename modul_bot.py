@@ -1,8 +1,3 @@
-"""
-MODUL_BOT.PY DENGAN DASHBOARD INTEGRATION
-Selenium automation dengan link processing tracking
-"""
-
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -13,9 +8,7 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 import os
 import time
 import gc
-
-# 🆕 IMPORT DASHBOARD
-from dashboard_integration import dashboard_logger, log_link_processing, update_worker_performance
+from dashboard_integration import DashboardLogger
 
 # --- KONFIGURASI WAKTU ---
 SLEEP_SEBELUM_AKSI = 50
@@ -92,12 +85,8 @@ def get_profiles_from_mapping(path):
     return profiles
 
 def process_single_link(driver, link, profile_name, status_dict):
-    """
-    Process single link dengan tracking ke dashboard
-    """
     try:
         status_dict[profile_name] = f"Membuka: {link}..."
-        dashboard_logger.log_event('LINK_PROCESS', profile_name, 'ATTEMPT', f'Opening: {link}')
         
         # Timeout loading page maks 20 detik
         driver.set_page_load_timeout(20)
@@ -105,11 +94,9 @@ def process_single_link(driver, link, profile_name, status_dict):
             driver.get(link)
         except TimeoutException:
             status_dict[profile_name] = "Page load timeout (Lanjut cek elemen)..."
-            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'WARNING', 'Page load timeout')
-        except Exception as e:
+        except Exception:
             status_dict[profile_name] = "Gagal memuat URL -> SKIP"
-            log_link_processing(profile_name, link, False, f"Failed to load: {str(e)[:50]}")
-            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'ERROR', f'URL load failed: {str(e)[:50]}')
+            DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: Failed to load {link}")
             return False
 
         # Waktu tunggu elemen muncul
@@ -120,20 +107,16 @@ def process_single_link(driver, link, profile_name, status_dict):
             trust = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'I trust the owner')]")))
             trust.click()
             status_dict[profile_name] = "Klik Trust"
-            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'INFO', 'Clicked Trust button')
             time.sleep(2)
-        except:
-            pass 
+        except: pass 
 
         # 2. Cek Tombol Open Workspace (Opsional - Coba Klik)
         try:
             open_ws = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Open Workspace')]")))
             open_ws.click()
             status_dict[profile_name] = "Klik Open"
-            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'INFO', 'Clicked Open button')
             time.sleep(2)
-        except:
-            pass 
+        except: pass 
 
         # 3. PENENTUAN: Cek Iframe IDE (WAJIB ADA)
         try:
@@ -142,12 +125,11 @@ def process_single_link(driver, link, profile_name, status_dict):
                 By.CSS_SELECTOR, "iframe.the-iframe.is-loaded[src*='ide-start']"
             )))
             status_dict[profile_name] = "✅ Iframe Muncul! Lanjut..."
-            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'SUCCESS', 'Iframe detected')
-        except:
+            DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: Iframe detected for {link}")
+        except: 
             # --- LOGIKA SKIP: Kalo Iframe gak ada, SKIP LINK INI ---
             status_dict[profile_name] = "❌ Iframe Gak Muncul -> SKIP LINK"
-            log_link_processing(profile_name, link, False, "Iframe not detected")
-            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'SKIPPED', 'Iframe not detected')
+            DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: No iframe for {link}")
             return False 
 
         # --- JIKA IFRAME ADA, BARU JALANKAN SHORTCUT ---
@@ -159,14 +141,10 @@ def process_single_link(driver, link, profile_name, status_dict):
             actions = ActionChains(driver)
             actions.key_down(Keys.CONTROL).key_down(Keys.SHIFT).send_keys("c").key_up(Keys.SHIFT).key_up(Keys.CONTROL).perform()
             status_dict[profile_name] = "Shortcut Terkirim!"
-            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'SUCCESS', 'Shortcut sent')
-            
-            # 🆕 LOG LINK SUCCESS
-            log_link_processing(profile_name, link, True, "Shortcut executed successfully")
-        except Exception as e:
+            DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: Shortcut sent for {link}")
+        except:
             status_dict[profile_name] = "Gagal kirim shortcut"
-            log_link_processing(profile_name, link, False, f"Shortcut failed: {str(e)[:50]}")
-            dashboard_logger.log_event('LINK_PROCESS', profile_name, 'ERROR', f'Shortcut error: {str(e)[:50]}')
+            DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: Failed to send shortcut for {link}")
             
         time.sleep(SLEEP_SESUDAH_AKSI)
         status_dict[profile_name] = "✅ Selesai link ini."
@@ -174,49 +152,38 @@ def process_single_link(driver, link, profile_name, status_dict):
 
     except Exception as e:
         status_dict[profile_name] = f"❌ Error System: {str(e)[:20]}..."
-        log_link_processing(profile_name, link, False, str(e)[:50])
-        dashboard_logger.log_event('LINK_PROCESS', profile_name, 'CRITICAL', f'System error: {str(e)[:50]}')
+        DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: Error - {str(e)[:50]}")
         time.sleep(SLEEP_JIKA_ERROR)
         return False
-
+        
 def worker(profile_name, user_data_dir, profile_dir, window_position, links, status_dict):
-    """
-    Worker process dengan dashboard tracking
-    """
-    
-    dashboard_logger.log_event('WORKER', profile_name, 'START', f'Worker initialized with {len(links)} links')
-    
     if not links:
         status_dict[profile_name] = "Tidak ada link."
-        dashboard_logger.log_event('WORKER', profile_name, 'WARNING', 'No links assigned')
+        DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: No links assigned")
         return
 
     options = get_options(user_data_dir, profile_dir)
     driver = None
     
-    total_links = 0
-    successful_links = 0
-    failed_links = 0
-    start_time = time.time()
-    
     try:
         status_dict[profile_name] = "Start Browser..."
         driver = webdriver.Chrome(options=options)
-        dashboard_logger.log_event('WORKER', profile_name, 'INFO', 'Browser started')
+        DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: Browser started")
         
         if window_position: 
             driver.set_window_position(*window_position)
 
         putaran = 1
+        successful_links = 0
+        failed_links = 0
+        
         while True: 
             status_dict[profile_name] = f"🔄 Masuk Putaran ke-{putaran}"
             for i, link in enumerate(links):
-                status_dict[profile_name] = f"[P{putaran}] Link {i+1}/{len(links)}..."
+                status_dict[profile_name] = f"[P{putaran}] Link {i+1}..."
                 
                 # [OPTIMASI MEMORY] Bersihkan sampah memori Python sebelum proses berat
                 gc.collect() 
-                
-                total_links += 1
                 
                 # JALANKAN PROSES
                 if process_single_link(driver, link, profile_name, status_dict):
@@ -226,23 +193,12 @@ def worker(profile_name, user_data_dir, profile_dir, window_position, links, sta
                 
             status_dict[profile_name] = f"✅ Putaran {putaran} Done. Replay..."
             putaran += 1
-            time.sleep(3) 
+            time.sleep(3)
             
     except Exception as e:
         status_dict[profile_name] = f"CRITICAL: {e}"
-        dashboard_logger.log_event('WORKER', profile_name, 'CRITICAL', f'Worker crash: {str(e)[:50]}')
+        DashboardLogger.log_simple_event(f"[MODUL_BOT] {profile_name}: CRITICAL ERROR - {str(e)[:50]}")
     finally:
         if driver:
-            try: 
-                driver.quit()
-            except: 
-                pass
-        
-        # 🆕 UPDATE WORKER PERFORMANCE STATS
-        runtime = int(time.time() - start_time)
-        update_worker_performance(profile_name, total_links, successful_links, failed_links, runtime)
-        
-        dashboard_logger.log_event('WORKER', profile_name, 'END', 
-                                  f'Worker finished: {successful_links}/{total_links} successful, runtime: {runtime}s')
-        
-        print(f"✅ [{profile_name}] Complete: {successful_links}/{total_links} successful in {runtime}s", flush=True)
+            try: driver.quit()
+            except: pass

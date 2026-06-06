@@ -1,8 +1,3 @@
-"""
-AGENT.PY DENGAN DASHBOARD INTEGRATION
-Versi ter-update dengan auto logging ke dashboard
-"""
-
 import os
 import subprocess
 import psutil
@@ -18,9 +13,7 @@ import glob
 import shutil
 from urllib.parse import urlparse
 from flask import Flask, request, jsonify
-
-# 🆕 IMPORT DASHBOARD
-from dashboard_integration import dashboard_logger, log_login_attempt
+from dashboard_integration import DashboardLogger
 
 # Matikan Warning SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -60,7 +53,7 @@ DNS_MAP = {}
 
 def resolve_domain_dynamic():
     print("🌉 [BRIDGE] Memulai Resolusi DNS Dinamis...", flush=True)
-    dashboard_logger.log_event('INIT', 'SYSTEM', 'INFO', 'DNS Bridge initialization started')
+    DashboardLogger.log_simple_event("[BRIDGE] DNS resolution started")
     
     for url in PANEL_URL:
         try:
@@ -77,10 +70,10 @@ def resolve_domain_dynamic():
                 ip_address = data['Answer'][0]['data']
                 DNS_MAP[domain] = ip_address
                 print(f"✅ [BRIDGE] Rute Ditemukan: {domain} -> {ip_address}", flush=True)
-                dashboard_logger.log_event('BRIDGE', 'SYSTEM', 'SUCCESS', f'DNS resolved: {domain} -> {ip_address}')
+                DashboardLogger.log_event('BRIDGE', 'SYSTEM', 'SUCCESS', f'{domain} -> {ip_address}')
         except Exception as e:
             print(f"❌ [BRIDGE] Error Resolve {url}: {e}", flush=True)
-            dashboard_logger.log_event('BRIDGE', 'SYSTEM', 'ERROR', f'DNS resolution failed: {str(e)}')
+            DashboardLogger.log_event('BRIDGE', 'SYSTEM', 'ERROR', f'Error resolving {url}')
 
 def new_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     if host in DNS_MAP:
@@ -115,10 +108,9 @@ def report_status(state, msg=""):
                 timeout=10,
                 verify=False
             )
-            # 🆕 LOG TO DASHBOARD
-            dashboard_logger.log_event('REPORT', 'SYSTEM', 'SUCCESS', f'Status reported: {state}')
+            DashboardLogger.log_event('REPORT', 'SYSTEM', 'SUCCESS', f'Status reported: {state}')
         except Exception as e:
-            dashboard_logger.log_event('REPORT', 'SYSTEM', 'ERROR', f'Status report failed: {str(e)}')
+            DashboardLogger.log_event('REPORT', 'SYSTEM', 'ERROR', f'Failed to report: {str(e)[:50]}')
 
 # ==========================================
 # 🛠️ PROCESS MANAGER (OPTIMIZED PSUTIL & ZOMBIE KILLER)
@@ -130,7 +122,7 @@ def run_and_monitor(cmd_list, task_name):
     Mencegah Zombie Process dengan os.setsid.
     """
     print(f"🚀 [TASK] Memulai: {task_name}", flush=True)
-    dashboard_logger.log_event('TASK_START', 'SYSTEM', 'INFO', f'{task_name} started')
+    DashboardLogger.log_event('TASK_START', 'SYSTEM', 'INFO', f'{task_name} started')
     
     state_name = f"BUSY_{task_name}" 
     report_status(state_name, f"Running {task_name}...")
@@ -149,12 +141,12 @@ def run_and_monitor(cmd_list, task_name):
             f.write(f"\n--- END {task_name} : {time.ctime()} ---\n")
     
         print(f"✅ [TASK] {task_name} Selesai. Melapor ke Server...", flush=True)
-        dashboard_logger.log_event('TASK_END', 'SYSTEM', 'SUCCESS', f'{task_name} completed')
+        DashboardLogger.log_event('TASK_END', 'SYSTEM', 'SUCCESS', f'{task_name} completed')
         report_status("IDLE", f"{task_name} Finished")
         
     except Exception as e:
         print(f"❌ [TASK] Error saat menjalankan {task_name}: {e}", flush=True)
-        dashboard_logger.log_event('TASK_END', 'SYSTEM', 'ERROR', f'{task_name} error: {str(e)}')
+        DashboardLogger.log_event('TASK_ERROR', 'SYSTEM', 'ERROR', f'{task_name} error: {str(e)[:50]}')
         report_status("IDLE", f"Error: {str(e)}")
 
 def check_process(script_name):
@@ -168,7 +160,7 @@ def check_process(script_name):
 
 def kill_processes():
     print("🛑 [CLEANUP] Killing active processes and clearing locks...", flush=True)
-    dashboard_logger.log_event('CLEANUP', 'SYSTEM', 'INFO', 'Cleanup started')
+    DashboardLogger.log_event('CLEANUP', 'SYSTEM', 'INFO', 'Cleanup started')
     
     targets = [FILE_LOGIN, FILE_LOOP, 'chrome', 'chromedriver', 'xvfb']
     my_pid = os.getpid()
@@ -198,7 +190,9 @@ def kill_processes():
             shutil.rmtree('/tmp/.X11-unix', ignore_errors=True)
             os.makedirs('/tmp/.X11-unix', exist_ok=True)
     except Exception as e:
-        print(f"⚠️ Gagal bersihkan X lock: {e}", flush=True)
+        pass
+    
+    DashboardLogger.log_event('CLEANUP', 'SYSTEM', 'SUCCESS', 'Cleanup completed')
 
 def clean_system():
     # 1. Bersihkan Zombie Process
@@ -225,7 +219,8 @@ def clean_system():
 def auto_register():
     global CURRENT_SLOT
     print("⏳ [INIT] Menyiapkan URL Bot...", flush=True)
-    dashboard_logger.log_event('REGISTER', 'SYSTEM', 'INFO', 'Auto-register started')
+    DashboardLogger.log_event('INIT', 'SYSTEM', 'INFO', 'Initialization started')
+    
     time.sleep(3)
 
     hf_host = os.environ.get("SPACE_HOST")
@@ -233,11 +228,9 @@ def auto_register():
     if hf_host:
         bot_url = f"https://{hf_host}"
         print(f"✅ [INIT] Berjalan di Hugging Face! URL: {bot_url}", flush=True)
-        dashboard_logger.log_event('REGISTER', 'SYSTEM', 'INFO', f'Running on HuggingFace: {bot_url}')
     else:
         bot_url = "http://localhost:7860"
         print(f"⚠️ [INIT] SPACE_HOST tidak ditemukan. Menggunakan fallback: {bot_url}", flush=True)
-        dashboard_logger.log_event('REGISTER', 'SYSTEM', 'WARNING', 'SPACE_HOST not found, using fallback')
 
     try:
         my_ip = requests.get('https://api.ipify.org', timeout=10, verify=False).text.strip()
@@ -263,7 +256,7 @@ def auto_register():
                     locker = data.get('locker', {})
 
                     print(f"\n✅ [INIT] TERDAFTAR DI SLOT: {CURRENT_SLOT}", flush=True)
-                    dashboard_logger.log_event('REGISTER', 'SYSTEM', 'SUCCESS', f'Registered at slot {CURRENT_SLOT}')
+                    DashboardLogger.log_event('REGISTER', 'SYSTEM', 'SUCCESS', f'Registered at slot {CURRENT_SLOT}')
                     
                     emails = locker.get('emails', [])
                     links = locker.get('links', [])
@@ -283,7 +276,7 @@ def auto_register():
                             )
                             if ack_resp.status_code == 200:
                                 print("✅ [ACK] Sinkronisasi Berhasil!", flush=True)
-                                dashboard_logger.log_event('REGISTER', 'SYSTEM', 'SUCCESS', 'ACK successful')
+                                DashboardLogger.log_event('ACK', 'SYSTEM', 'SUCCESS', 'Sync successful')
                                 ack_success = True
                                 break 
                         except:
@@ -291,7 +284,7 @@ def auto_register():
                     
                     if not ack_success:
                         print("💀 [FATAL] Gagal ACK ke Server. Ulangi Register...", flush=True)
-                        dashboard_logger.log_event('REGISTER', 'SYSTEM', 'ERROR', 'ACK failed, retrying')
+                        DashboardLogger.log_event('ACK', 'SYSTEM', 'ERROR', 'ACK failed')
                         CURRENT_SLOT = None
                         continue 
 
@@ -300,10 +293,10 @@ def auto_register():
 
                 elif resp.status_code == 503:
                     print("⛔ [INIT] PANEL PENUH! Retry 10s...", flush=True)
-                    dashboard_logger.log_event('REGISTER', 'SYSTEM', 'WARNING', 'Panel full, retrying')
+                    DashboardLogger.log_event('REGISTER', 'SYSTEM', 'WARNING', 'Panel full')
             except Exception as e:
                 print(f"❌ [INIT] Gagal koneksi ke panel: {e}", flush=True)
-                dashboard_logger.log_event('REGISTER', 'SYSTEM', 'ERROR', f'Connection failed: {str(e)}')
+                DashboardLogger.log_event('REGISTER', 'SYSTEM', 'ERROR', f'Connection failed')
                 resolve_domain_dynamic()
         
         if not registered: time.sleep(10)
@@ -320,7 +313,7 @@ def start_automatic_flow():
     
     if not is_registered:
         print("❌ [AUTO] Registrasi gagal. Membatalkan otomatisasi.")
-        dashboard_logger.log_event('AUTO', 'SYSTEM', 'ERROR', 'Registration failed, automation cancelled')
+        DashboardLogger.log_event('AUTO', 'SYSTEM', 'ERROR', 'Registration failed')
         return
 
     report_status("IDLE", "Registered. Cooldown 10s...")
@@ -339,17 +332,16 @@ def start_automatic_flow():
             
         if emails_count > 0 and links_count > 0:
             has_valid_data = True
-            dashboard_logger.log_event('DATA_CHECK', 'SYSTEM', 'SUCCESS', f'Data valid: {emails_count} emails, {links_count} links')
     except Exception as e:
         print(f"⚠️ [AUTO] Error saat mengecek data: {e}", flush=True)
-        dashboard_logger.log_event('DATA_CHECK', 'SYSTEM', 'ERROR', f'Data check failed: {str(e)}')
+        DashboardLogger.log_event('AUTO', 'SYSTEM', 'ERROR', f'Data check error')
 
     # JIKA KOSONG: TETAP IDLE DAN DIAM
     if not has_valid_data:
         print("⚠️ [AUTO] Data Kosong (Email/Link tidak ada). Bot standby dan tidak melakukan login.", flush=True)
-        dashboard_logger.log_event('AUTO', 'SYSTEM', 'WARNING', 'Data empty, standing by')
+        DashboardLogger.log_event('AUTO', 'SYSTEM', 'WARNING', 'Data empty')
         report_status("IDLE", "Data Empty. Standby")
-        return
+        return  # Berhenti di sini. Flask API akan tetap jalan untuk menerima request manual.
 
     # 3. RUN LOGIN.PY (HANYA JIKA ADA DATA)
     print("\n🔹 [AUTO] STEP 3: Data terdeteksi. Menjalankan Login.py...", flush=True)
@@ -361,7 +353,7 @@ def start_automatic_flow():
         run_and_monitor(cmd_login, "LOGIN")
     else:
         print("⚠️ [AUTO] Proses lain sedang berjalan, melewati Login.")
-        dashboard_logger.log_event('AUTO', 'SYSTEM', 'WARNING', 'Another process is running, skipping login')
+        DashboardLogger.log_event('AUTO', 'SYSTEM', 'WARNING', 'Process busy')
         report_status("IDLE", "Login Skipped (Busy)")
 
     # 4. RUN LOOP.PY
@@ -374,7 +366,7 @@ def start_automatic_flow():
         run_and_monitor(cmd_loop, "LOOP")
     else:
         print("⚠️ [AUTO] Loop sudah berjalan.")
-        dashboard_logger.log_event('AUTO', 'SYSTEM', 'INFO', 'Loop already running')
+        DashboardLogger.log_event('AUTO', 'SYSTEM', 'WARNING', 'Loop already running')
 
 # ==========================================
 # 🌐 API ENDPOINTS & DASHBOARD
@@ -392,31 +384,26 @@ def index():
         <div style="text-align:center">
             <h1>SERVER : ONLINE</h1>
             <p>System Status: <b>ONLINE</b></p>
-            <p><a href="/dashboard.html">Dashboard</a></p>
         </div>
     </body>
     </html>
     """
 
-@app.route('/dashboard.html')
-def dashboard():
-    try:
-        with open('dashboard.html', 'r') as f:
-            return f.read()
-    except:
-        return "Dashboard not found", 404
-
 @app.before_request
 def auth():
-    if request.endpoint in ['index', 'dashboard']:
+    if request.endpoint == 'index':
         return
     if request.headers.get("X-Auth-Key") != AUTH_KEY:
         return jsonify({"error": "Unauthorized"}), 401
 
 @app.route('/start/login', methods=['POST'])
 def menu_1():
-    if check_process(FILE_LOGIN): return jsonify({"msg": "Login sudah jalan!", "status": "busy"})
-    if check_process(FILE_LOOP): return jsonify({"msg": "Loop sedang jalan!", "status": "busy"})
+    if check_process(FILE_LOGIN): 
+        DashboardLogger.log_event('API_LOGIN', 'SYSTEM', 'WARNING', 'Already running')
+        return jsonify({"msg": "Login sudah jalan!", "status": "busy"})
+    if check_process(FILE_LOOP): 
+        DashboardLogger.log_event('API_LOGIN', 'SYSTEM', 'WARNING', 'Loop busy')
+        return jsonify({"msg": "Loop sedang jalan!", "status": "busy"})
     
     cmd = (
         "xvfb-run -a --server-args='-screen 0 {screen}' "
@@ -425,14 +412,18 @@ def menu_1():
         screen=SCREEN_LOGIN, python=sys.executable, login=FILE_LOGIN
     )
     
+    DashboardLogger.log_event('API_LOGIN', 'SYSTEM', 'INFO', 'Login triggered')
     threading.Thread(target=run_and_monitor, args=(cmd, "LOGIN"), daemon=True).start()
-    dashboard_logger.log_event('API', 'SYSTEM', 'INFO', 'Login started via API')
     return jsonify({"msg": "Login Started", "status": "ok"})
 
 @app.route('/start/loop', methods=['POST'])
 def menu_2():
-    if check_process(FILE_LOOP): return jsonify({"msg": "Loop sudah jalan!", "status": "busy"})
-    if check_process(FILE_LOGIN): return jsonify({"msg": "Login sedang jalan!", "status": "busy"})
+    if check_process(FILE_LOOP): 
+        DashboardLogger.log_event('API_LOOP', 'SYSTEM', 'WARNING', 'Already running')
+        return jsonify({"msg": "Loop sudah jalan!", "status": "busy"})
+    if check_process(FILE_LOGIN): 
+        DashboardLogger.log_event('API_LOOP', 'SYSTEM', 'WARNING', 'Login busy')
+        return jsonify({"msg": "Login sedang jalan!", "status": "busy"})
 
     cmd = (
         "xvfb-run -a --server-args='-screen 0 {screen}' "
@@ -441,8 +432,8 @@ def menu_2():
         screen=SCREEN_LOOP, python=sys.executable, loop=FILE_LOOP
     )
     
+    DashboardLogger.log_event('API_LOOP', 'SYSTEM', 'INFO', 'Loop triggered')
     threading.Thread(target=run_and_monitor, args=(cmd, "LOOP"), daemon=True).start()
-    dashboard_logger.log_event('API', 'SYSTEM', 'INFO', 'Loop started via API')
     return jsonify({"msg": "Loop Started", "status": "ok"})
 
 @app.route('/logs', methods=['GET'])
@@ -458,7 +449,7 @@ def menu_4():
     kill_processes()
     clean_system()
     open(LOG_FILE, 'w').close()
-    dashboard_logger.log_event('API', 'SYSTEM', 'INFO', 'System stopped via API')
+    DashboardLogger.log_event('API_STOP', 'SYSTEM', 'INFO', 'Stop triggered')
     if CURRENT_SLOT: report_status("IDLE", "Stopped by Admin")
     return jsonify({"msg": "Stopped & Cleaned"})
 
@@ -466,7 +457,7 @@ def menu_4():
 def menu_7():
     clean_system()
     mem = psutil.virtual_memory()
-    dashboard_logger.log_event('MAINTENANCE', 'SYSTEM', 'INFO', 'RAM cleanup performed')
+    DashboardLogger.log_event('API_CLEAN', 'SYSTEM', 'INFO', f'Memory optimized')
     return jsonify({"msg": "RAM Optimized", "free": f"{mem.available // 1048576} MB"})
 
 @app.route('/status', methods=['GET'])
@@ -480,28 +471,6 @@ def status():
         "state": state
     })
 
-# ==========================================
-# 🖼️ SCREENSHOT SERVER (FOR PANEL RELAY)
-# ==========================================
-@app.route('/view_screenshot', methods=['GET'])
-def view_screenshot():
-    """Endpoint untuk memberikan file gambar ke Panel VPS"""
-    filename = request.args.get('file')
-    if not filename:
-        return jsonify({"error": "Missing filename parameter"}), 400
-    
-    file_path = os.path.join(BASE_DIR, filename)
-    
-    if os.path.exists(file_path):
-        from flask import send_file
-        try:
-            return send_file(file_path, mimetype='image/png')
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-    else:
-        return jsonify({"error": f"File {filename} not found"}), 404
-        
 if __name__ == '__main__':
     threading.Thread(target=start_automatic_flow, daemon=True).start()
-    dashboard_logger.log_event('STARTUP', 'SYSTEM', 'INFO', 'Agent started')
     app.run(host='0.0.0.0', port=7860)

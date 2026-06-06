@@ -1,364 +1,233 @@
-"""
-DASHBOARD INTEGRATION MODULE
-Mengintegrasikan logging otomatis dari agent.py, login.py, loop.py, dan modul_bot.py
-Inject ke sistem monitoring tanpa mengubah logic utama
-"""
-
 import os
-import sys
-import time
-import threading
 import json
-import sqlite3
+import time
 from datetime import datetime
-from functools import wraps
-import requests
 
 # ==========================================
-# KONFIGURASI INTEGRATION
+# FILE-BASED LOGGING SYSTEM (NO DATABASE)
 # ==========================================
-DASHBOARD_API = os.environ.get('DASHBOARD_API', 'http://localhost:7861/api/dashboard')
-BATCH_ID = f"batch_{int(time.time())}"
-METRICS_QUEUE = []
-METRICS_LOCK = threading.Lock()
+
+BASE_DIR = os.getcwd()
+
+# Log Files
+BOT_LOG_FILE = os.path.join(BASE_DIR, "bot_log.txt")
+EMAIL_HISTORY_FILE = os.path.join(BASE_DIR, "email_history.txt")
+WORKER_STATS_FILE = os.path.join(BASE_DIR, "worker_stats.json")
+BATCH_HISTORY_FILE = os.path.join(BASE_DIR, "batch_history.json")
+EVENTS_LOG_FILE = os.path.join(BASE_DIR, "events_log.txt")
 
 class DashboardLogger:
     """
-    Logger yang tidak invasif untuk tracking events & metrics
-    Bisa diimport dan dipakai dari modul manapun
+    File-based logging system. Writes all events to text/JSON files.
+    Dashboard reads these files directly.
     """
-    
-    def __init__(self, db_path="dashboard_metrics.db"):
-        self.db_path = db_path
-        self.ensure_db()
-    
-    def ensure_db(self):
-        """Buat/pastikan database ada"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    event_type TEXT,
-                    profile_name TEXT,
-                    status TEXT,
-                    message TEXT,
-                    duration INTEGER,
-                    metadata TEXT
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS worker_stats (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    profile_name TEXT UNIQUE,
-                    total_links_processed INTEGER DEFAULT 0,
-                    successful_links INTEGER DEFAULT 0,
-                    failed_links INTEGER DEFAULT 0,
-                    total_runtime INTEGER DEFAULT 0,
-                    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS email_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE,
-                    login_timestamp DATETIME,
-                    profile_name TEXT,
-                    success BOOLEAN,
-                    error_msg TEXT
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS batch_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_id TEXT UNIQUE,
-                    start_time DATETIME,
-                    end_time DATETIME,
-                    total_workers INTEGER,
-                    total_links INTEGER,
-                    successful_links INTEGER,
-                    failed_links INTEGER,
-                    status TEXT
-                )
-            ''')
-            
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"❌ Database initialization error: {e}")
-    
-    def log_event(self, event_type, profile_name="SYSTEM", status="INFO", message="", duration=0, metadata=None):
-        """
-        Log event ke database
+
+    @staticmethod
+    def init_files():
+        """Initialize log files if they don't exist"""
+        for file_path in [BOT_LOG_FILE, EMAIL_HISTORY_FILE, EVENTS_LOG_FILE]:
+            if not os.path.exists(file_path):
+                open(file_path, 'w').close()
         
-        Contoh penggunaan:
-            logger.log_event('LOGIN', 'dotaja01', 'SUCCESS', 'Email login berhasil')
-            logger.log_event('LINK_PROCESS', 'dotaja02', 'SUCCESS', 'Iframe detected', metadata={'link': 'https://...'})
+        if not os.path.exists(WORKER_STATS_FILE):
+            with open(WORKER_STATS_FILE, 'w') as f:
+                json.dump({}, f)
+        
+        if not os.path.exists(BATCH_HISTORY_FILE):
+            with open(BATCH_HISTORY_FILE, 'w') as f:
+                json.dump([], f)
+
+    @staticmethod
+    def log_event(event_type, profile_name, status, message, duration=0, metadata=""):
+        """
+        Write event to bot_log.txt
+        Format: [TIMESTAMP] EVENT_TYPE | PROFILE | STATUS | MESSAGE | DURATION | METADATA
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_line = f"[{timestamp}] {event_type} | {profile_name} | {status} | {message} | {duration}s | {metadata}\n"
+        
+        try:
+            with open(BOT_LOG_FILE, "a") as f:
+                f.write(log_line)
+        except Exception as e:
+            print(f"Error logging event: {e}")
+
+    @staticmethod
+    def log_email_attempt(email, profile_name, success, error_msg=""):
+        """
+        Write email login attempt to email_history.txt
+        Format: [TIMESTAMP] EMAIL | PROFILE | SUCCESS/FAILED | ERROR_MSG
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        status = "SUCCESS" if success else "FAILED"
+        log_line = f"[{timestamp}] {email} | {profile_name} | {status} | {error_msg}\n"
+        
+        try:
+            with open(EMAIL_HISTORY_FILE, "a") as f:
+                f.write(log_line)
+        except Exception as e:
+            print(f"Error logging email attempt: {e}")
+
+    @staticmethod
+    def log_simple_event(text):
+        """
+        Write simple text line to events_log.txt (for quick tracking)
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_line = f"[{timestamp}] {text}\n"
+        
+        try:
+            with open(EVENTS_LOG_FILE, "a") as f:
+                f.write(log_line)
+        except Exception as e:
+            print(f"Error logging simple event: {e}")
+
+    @staticmethod
+    def update_worker_stats(profile_name, total_processed, successful, failed, runtime):
+        """
+        Update worker_stats.json with per-worker statistics
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            meta_str = json.dumps(metadata) if metadata else None
+            # Read existing stats
+            if os.path.exists(WORKER_STATS_FILE):
+                with open(WORKER_STATS_FILE, "r") as f:
+                    try:
+                        stats = json.load(f)
+                    except:
+                        stats = {}
+            else:
+                stats = {}
             
-            cursor.execute('''
-                INSERT INTO events (event_type, profile_name, status, message, duration, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (event_type, profile_name, status, message, duration, meta_str))
+            # Update/Add worker
+            stats[profile_name] = {
+                "total_processed": total_processed,
+                "successful": successful,
+                "failed": failed,
+                "success_rate": round((successful / total_processed * 100), 2) if total_processed > 0 else 0,
+                "runtime": runtime,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
             
-            conn.commit()
-            conn.close()
-            print(f"📊 [{event_type}] {profile_name}: {message}", flush=True)
+            # Write back
+            with open(WORKER_STATS_FILE, "w") as f:
+                json.dump(stats, f, indent=2)
         except Exception as e:
-            print(f"❌ Log event error: {e}")
-    
-    def log_login(self, email, profile_name, success=True, error_msg=""):
-        """Track email login"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT OR REPLACE INTO email_history (email, login_timestamp, profile_name, success, error_msg)
-                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?)
-            ''', (email, profile_name, success, error_msg if not success else ""))
-            
-            conn.commit()
-            conn.close()
-            
-            status = "✅ SUCCESS" if success else f"❌ FAILED: {error_msg}"
-            self.log_event('LOGIN', profile_name, 'SUCCESS' if success else 'ERROR', 
-                          f"Email login attempt: {email} - {status}")
-        except Exception as e:
-            print(f"❌ Login tracking error: {e}")
-    
-    def update_worker_stats(self, profile_name, links_processed=0, successful=0, failed=0, runtime=0):
-        """Update worker performance"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT OR REPLACE INTO worker_stats 
-                (profile_name, total_links_processed, successful_links, failed_links, total_runtime, last_updated)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (profile_name, links_processed, successful, failed, runtime))
-            
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"❌ Worker stats update error: {e}")
-    
-    def log_link_process(self, profile_name, link, success=True, message=""):
-        """Track link processing"""
-        self.log_event(
-            'LINK_PROCESS',
-            profile_name,
-            'SUCCESS' if success else 'FAILED',
-            message,
-            metadata={'link': link}
-        )
-    
-    def start_batch(self, total_workers, total_links):
-        """Mark batch start"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO batch_history (batch_id, start_time, total_workers, total_links, status)
-                VALUES (?, CURRENT_TIMESTAMP, ?, ?, 'RUNNING')
-            ''', (BATCH_ID, total_workers, total_links))
-            
-            conn.commit()
-            conn.close()
-            self.log_event('BATCH_START', 'SYSTEM', 'INFO', 
-                          f"Batch started: {total_workers} workers, {total_links} links")
-        except Exception as e:
-            print(f"❌ Batch start error: {e}")
-    
-    def end_batch(self, successful_links, failed_links):
-        """Mark batch end"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE batch_history 
-                SET end_time = CURRENT_TIMESTAMP, 
-                    successful_links = ?,
-                    failed_links = ?,
-                    status = 'COMPLETED'
-                WHERE batch_id = ?
-            ''', (successful_links, failed_links, BATCH_ID))
-            
-            conn.commit()
-            conn.close()
-            self.log_event('BATCH_END', 'SYSTEM', 'INFO',
-                          f"Batch ended: {successful_links} successful, {failed_links} failed")
-        except Exception as e:
-            print(f"❌ Batch end error: {e}")
+            print(f"Error updating worker stats: {e}")
 
-# ==========================================
-# GLOBAL LOGGER INSTANCE
-# ==========================================
-dashboard_logger = DashboardLogger()
-
-# ==========================================
-# DECORATOR UNTUK AUTO-LOGGING
-# ==========================================
-def track_execution(event_type="EXECUTION", profile_name_arg=None):
-    """
-    Decorator untuk auto-track function execution
-    
-    Contoh:
-        @track_execution("LOGIN", "profile_name")
-        def login_user(profile_name, password):
-            ...
-    """
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            start_time = time.time()
-            profile_name = "SYSTEM"
+    @staticmethod
+    def add_batch_history(batch_id, start_time, total_workers, total_links, successful, failed):
+        """
+        Add batch record to batch_history.json
+        """
+        try:
+            # Read existing batches
+            if os.path.exists(BATCH_HISTORY_FILE):
+                with open(BATCH_HISTORY_FILE, "r") as f:
+                    try:
+                        batches = json.load(f)
+                    except:
+                        batches = []
+            else:
+                batches = []
             
-            # Extract profile name dari args/kwargs
-            if profile_name_arg:
-                if isinstance(profile_name_arg, int) and profile_name_arg < len(args):
-                    profile_name = str(args[profile_name_arg])
-                elif profile_name_arg in kwargs:
-                    profile_name = str(kwargs[profile_name_arg])
+            # Add new batch
+            batch_record = {
+                "batch_id": batch_id,
+                "start_time": start_time,
+                "end_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "total_workers": total_workers,
+                "total_links": total_links,
+                "successful_links": successful,
+                "failed_links": failed,
+                "success_rate": round((successful / total_links * 100), 2) if total_links > 0 else 0
+            }
+            
+            batches.append(batch_record)
+            
+            # Write back (keep only last 100 batches to avoid huge file)
+            if len(batches) > 100:
+                batches = batches[-100:]
+            
+            with open(BATCH_HISTORY_FILE, "w") as f:
+                json.dump(batches, f, indent=2)
+        except Exception as e:
+            print(f"Error adding batch history: {e}")
+
+    @staticmethod
+    def get_tail_log(filename, lines=50):
+        """
+        Get last N lines from a log file
+        """
+        try:
+            if not os.path.exists(filename):
+                return []
+            
+            with open(filename, "r") as f:
+                all_lines = f.readlines()
+                return all_lines[-lines:] if len(all_lines) > lines else all_lines
+        except:
+            return []
+
+    @staticmethod
+    def read_json_file(filename):
+        """
+        Read and parse JSON file
+        """
+        try:
+            if not os.path.exists(filename):
+                return {} if "stats" in filename else []
+            
+            with open(filename, "r") as f:
+                return json.load(f)
+        except:
+            return {} if "stats" in filename else []
+
+    @staticmethod
+    def cleanup_old_logs(days=30):
+        """
+        Clean up old log entries (keep only recent logs)
+        This prevents log files from growing too large
+        """
+        import re
+        
+        cutoff_time = datetime.now().timestamp() - (days * 86400)
+        
+        for log_file in [BOT_LOG_FILE, EMAIL_HISTORY_FILE, EVENTS_LOG_FILE]:
+            if not os.path.exists(log_file):
+                continue
             
             try:
-                result = func(*args, **kwargs)
-                duration = int(time.time() - start_time)
-                dashboard_logger.log_event(
-                    event_type, profile_name, 'SUCCESS',
-                    f"{func.__name__} completed", duration
-                )
-                return result
+                with open(log_file, "r") as f:
+                    lines = f.readlines()
+                
+                # Filter out old entries
+                filtered_lines = []
+                for line in lines:
+                    try:
+                        # Extract timestamp from line format: [YYYY-MM-DD HH:MM:SS]
+                        match = re.search(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]', line)
+                        if match:
+                            time_str = match.group(1)
+                            line_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S").timestamp()
+                            if line_time > cutoff_time:
+                                filtered_lines.append(line)
+                    except:
+                        filtered_lines.append(line)  # Keep lines that can't be parsed
+                
+                # Write back cleaned logs
+                with open(log_file, "w") as f:
+                    f.writelines(filtered_lines)
             except Exception as e:
-                duration = int(time.time() - start_time)
-                dashboard_logger.log_event(
-                    event_type, profile_name, 'ERROR',
-                    f"{func.__name__} failed: {str(e)}", duration
-                )
-                raise
-        return wrapper
-    return decorator
+                print(f"Error cleaning log file {log_file}: {e}")
 
-# ==========================================
-# HELPER FUNCTIONS UNTUK DIPAKAI MODUL LAIN
-# ==========================================
-def log_login_attempt(email, profile_name, success=True, error=""):
-    """Wrapper untuk tracking login"""
-    dashboard_logger.log_login(email, profile_name, success, error)
-
-def log_link_processing(profile_name, link, success=True, message=""):
-    """Wrapper untuk tracking link processing"""
-    dashboard_logger.log_link_process(profile_name, link, success, message)
-
-def update_worker_performance(profile_name, links_processed, successful, failed, runtime):
-    """Wrapper untuk update worker stats"""
-    dashboard_logger.update_worker_stats(profile_name, links_processed, successful, failed, runtime)
-
-def mark_batch_start(total_workers, total_links):
-    """Mark batch start"""
-    dashboard_logger.start_batch(total_workers, total_links)
-
-def mark_batch_end(successful, failed):
-    """Mark batch end"""
-    dashboard_logger.end_batch(successful, failed)
-
-# ==========================================
-# AUTO-INJECT KE MODUL YANG ADA (OPTIONAL)
-# ==========================================
-def inject_into_agent():
-    """
-    Inject dashboard logging ke agent.py
-    Tambahkan line ini ke agent.py:
-        from dashboard_integration import dashboard_logger
-        
-    Kemudian replace:
-        log_event(...) dengan dashboard_logger.log_event(...)
-        report_status(...) dengan logging ke dashboard
-    """
-    pass
-
-def inject_into_login():
-    """
-    Inject ke login.py
-    Tambahkan:
-        from dashboard_integration import log_login_attempt
-        
-    Kemudian di bagian login success:
-        log_login_attempt(EMAIL, folder_name, True)
-    """
-    pass
-
-def inject_into_modul_bot():
-    """
-    Inject ke modul_bot.py
-    Tambahkan:
-        from dashboard_integration import log_link_processing, update_worker_performance
-        
-    Di process_single_link():
-        log_link_processing(profile_name, link, success, message)
-    
-    Di worker():
-        update_worker_performance(profile_name, links_count, success_count, fail_count, runtime)
-    """
-    pass
-
-# ==========================================
-# MONITORING THREAD (OPTIONAL)
-# ==========================================
-class MetricsReporter(threading.Thread):
-    """Background thread untuk reporting metrics ke dashboard"""
-    
-    def __init__(self, interval=5):
-        super().__init__(daemon=True)
-        self.interval = interval
-        self.running = True
-    
-    def run(self):
-        while self.running:
-            try:
-                # Report ke dashboard API
-                with METRICS_LOCK:
-                    if METRICS_QUEUE:
-                        # Kirim metrics batch ke dashboard
-                        requests.post(
-                            f"{DASHBOARD_API}/report",
-                            json={"metrics": METRICS_QUEUE},
-                            timeout=5
-                        )
-                        METRICS_QUEUE.clear()
-            except:
-                pass
-            
-            time.sleep(self.interval)
-    
-    def stop(self):
-        self.running = False
-
-# Start reporter
-metrics_reporter = MetricsReporter()
-metrics_reporter.start()
+# Initialize files on import
+DashboardLogger.init_files()
 
 if __name__ == "__main__":
-    # Test dashboard logger
-    logger = DashboardLogger()
-    
-    print("📊 Testing Dashboard Logger...")
-    logger.log_event('TEST', 'test_profile', 'INFO', 'Testing event logging')
-    logger.log_login('test@example.com', 'dotaja01', True)
-    logger.update_worker_stats('dotaja01', 100, 95, 5, 3600)
-    logger.log_link_process('dotaja01', 'https://example.com', True, 'Iframe detected')
-    
-    print("✅ Dashboard logger is working!")
+    print("✅ Dashboard logger initialized!")
+    print(f"Log files created in: {BASE_DIR}")
+    print(f"  - {BOT_LOG_FILE}")
+    print(f"  - {EMAIL_HISTORY_FILE}")
+    print(f"  - {WORKER_STATS_FILE}")
+    print(f"  - {BATCH_HISTORY_FILE}")
+    print(f"  - {EVENTS_LOG_FILE}")
