@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+PIPFILE.lock
+.venv
+venv/
+ENV/
+env/
+.env
+*.log
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnp
+.pnp.js
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Bot files (working directory)
+bot_log.txt
+email.txt
+link.txt
+mapping_profil.txt
+history_sukses.txt
+monitor.json
+monitor.json.tmp
+chrome_profiles/
+*.png
+*.jpg
+
+# Sensitive
+.env.local
+.env.*.local
+secrets.json
+config.local.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
