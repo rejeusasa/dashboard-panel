@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import sys
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
@@ -15,6 +16,16 @@ CORS(app)
 
 BASE_DIR = os.getcwd()
 MONITOR_FILE = os.path.join(BASE_DIR, "monitor.json")
+
+# ==========================================
+# CLOUDFLARE TUNNEL CONFIGURATION
+# ==========================================
+
+# Set default to localhost for Cloudflare Tunnel compatibility
+TUNNEL_ENABLED = os.getenv('CLOUDFLARE_TUNNEL', 'true').lower() == 'true'
+HOST = '127.0.0.1' if TUNNEL_ENABLED else os.getenv('HOST', '0.0.0.0')
+PORT = int(os.getenv('PORT', 7861))
+DEBUG_MODE = os.getenv('DEBUG', 'false').lower() == 'true'
 
 # ==========================================
 # UTILITY FUNCTIONS
@@ -79,6 +90,32 @@ def read_monitor_json():
     except:
         pass
     return {}
+
+def print_startup_info():
+    """
+    Print startup information including Cloudflare Tunnel details
+    """
+    print("\n" + "="*60)
+    print("🚀 DASHBOARD API SERVER STARTING")
+    print("="*60)
+    print(f"📁 Base Directory: {BASE_DIR}")
+    print(f"🌐 Host: {HOST}")
+    print(f"🔌 Port: {PORT}")
+    print(f"🔧 Debug Mode: {DEBUG_MODE}")
+    print("-"*60)
+    if TUNNEL_ENABLED:
+        print("✅ CLOUDFLARE TUNNEL: ENABLED")
+        print("   The dashboard will be accessible through Cloudflare Tunnel")
+        print("   Access via: https://your-domain.com")
+        print("   Make sure:")
+        print("   - cloudflared service is running: sudo systemctl status cloudflared")
+        print("   - DNS record is configured in Cloudflare Dashboard")
+    else:
+        print("⚠️  CLOUDFLARE TUNNEL: DISABLED")
+        print("   Access via: http://{HOST}:{PORT}")
+    print("-"*60)
+    print("📊 API Endpoints: /api/dashboard/*")
+    print("="*60 + "\n")
 
 # ==========================================
 # API ENDPOINTS
@@ -304,7 +341,11 @@ def cleanup():
 # ==========================================
 
 if __name__ == '__main__':
-    print("🚀 Dashboard API Server Starting on Port 7861...")
-    print(f"📁 Reading logs from: {BASE_DIR}")
-    print(f"📊 Endpoints: /api/dashboard/*")
-    app.run(host='0.0.0.0', port=7861, debug=False)
+    try:
+        print_startup_info()
+        print(f"✅ Dashboard listening at {HOST}:{PORT}")
+        print("   Ready to receive requests...\n")
+        app.run(host=HOST, port=PORT, debug=DEBUG_MODE)
+    except Exception as e:
+        print(f"❌ Error starting dashboard: {e}", file=sys.stderr)
+        sys.exit(1)
